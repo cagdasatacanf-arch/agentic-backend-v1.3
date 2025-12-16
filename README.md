@@ -1,4 +1,5 @@
-# Agentic Backend - Production-Ready FastAPI Application
+<<<<<<< HEAD
+# agentic-backend-v1.3- Production-Ready FastAPI Application
 
 Complete production-ready FastAPI backend for agentic AI systems with RAG (Retrieval-Augmented Generation).
 
@@ -41,3 +42,7 @@ Complete production-ready FastAPI backend for agentic AI systems with RAG (Retri
 
 ### 1. Clone & Configure
 
+=======
+# agentic-backend-v1.3
+Production-ready FastAPI backend for agentic AI systems with RAG and OpenAI integration.
+>>>>>>> a7dc324e0fc05f8305287a0e66ff5d07f7b59cb2
