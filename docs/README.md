@@ -23,6 +23,7 @@ Comprehensive guides for configuring and extending your agentic backend.
 | Guide | Description | Time | Difficulty |
 |-------|-------------|------|------------|
 | **[Agentic AI Enhancements](AGENTIC_AI_ENHANCEMENTS.md)** | Research-backed roadmap for advanced features | 60 min | ⭐⭐⭐ Advanced |
+| **[Phase 1 Implementation](PHASE1_IMPLEMENTATION.md)** | ✅ Completed: Tool metrics, quality scoring, multi-hop RAG | 30 min | ⭐⭐ Intermediate |
 
 ### Integration Guides
 - **[../LANGGRAPH_INTEGRATION.md](../LANGGRAPH_INTEGRATION.md)** - LangGraph multi-agent system

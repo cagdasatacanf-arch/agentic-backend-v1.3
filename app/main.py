@@ -172,6 +172,7 @@ if ENVIRONMENT == "prod":
 from app.api.routes_query import router as query_router  # noqa: E402
 from app.api.routes_docs import router as docs_router  # noqa: E402
 from app.api.routes_query_langgraph import router as langgraph_router  # noqa: E402
+from app.api.routes_metrics import router as metrics_router  # noqa: E402
 
 app.include_router(query_router)
 app.include_router(docs_router)
@@ -179,3 +180,6 @@ app.include_router(docs_router)
 # Add LangGraph routes with custom prefix to avoid endpoint conflicts
 langgraph_router.prefix = "/api/v1/langgraph"
 app.include_router(langgraph_router)
+
+# Add metrics and quality evaluation routes (Phase 1: Agentic AI Enhancements)
+app.include_router(metrics_router)
