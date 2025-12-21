@@ -71,6 +71,7 @@ Comprehensive guides for configuration and customization:
 | Guide | Description | Time |
 |-------|-------------|------|
 | **[Setup Guide](SETUP.md)** | Complete installation and troubleshooting | 15 min |
+| **[API Testing](docs/API_TESTING.md)** | Test all endpoints with curl, Python, Postman | 20 min |
 | **[Configuration Index](docs/CONFIGURATION_INDEX.md)** | Environment variables reference | 10 min |
 | **[Custom Tools](docs/CUSTOM_TOOLS.md)** | Create custom tools for your agents | 30 min |
 | **[LangSmith Setup](docs/LANGSMITH_SETUP.md)** | Monitor and debug with LangSmith | 15 min |
@@ -140,7 +141,18 @@ curl -X POST http://localhost:8000/api/v1/langgraph/query/stream \
 
 ## Testing
 
-Run the comprehensive test suite:
+### Quick API Test
+
+Run the interactive test client to verify all endpoints:
+
+```bash
+# Interactive API test client (tests all endpoints)
+python3 test_api_client.py
+```
+
+### System Tests
+
+Run comprehensive tests:
 
 ```bash
 # Automated system tests
@@ -155,6 +167,12 @@ pytest tests/test_health.py -v
 # With coverage
 pytest --cov=app tests/
 ```
+
+### Manual Testing
+
+- **Postman**: Import `postman_collection.json`
+- **curl**: See examples in [API Testing Guide](docs/API_TESTING.md)
+- **Swagger UI**: http://localhost:8000/docs
 
 ---
 

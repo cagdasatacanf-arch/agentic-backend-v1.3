@@ -13,6 +13,7 @@ Comprehensive guides for configuring and extending your agentic backend.
 | Guide | Description | Time | Difficulty |
 |-------|-------------|------|------------|
 | **[Configuration Index](CONFIGURATION_INDEX.md)** | Complete environment variable reference | 10 min | ⭐ Beginner |
+| **[API Testing Guide](API_TESTING.md)** | Test all endpoints with examples | 20 min | ⭐ Beginner |
 | **[Custom Tools Development](CUSTOM_TOOLS.md)** | Create custom tools for your agents | 30 min | ⭐⭐ Intermediate |
 | **[LangSmith Setup](LANGSMITH_SETUP.md)** | Monitor and debug with LangSmith | 15 min | ⭐ Beginner |
 | **[RAG Optimization](RAG_OPTIMIZATION.md)** | Improve retrieval quality and performance | 45 min | ⭐⭐⭐ Advanced |
@@ -30,6 +31,9 @@ Comprehensive guides for configuring and extending your agentic backend.
 
 **...get started quickly**
 → Run `../quick-start.sh` (Linux/macOS) or `../quick-start.bat` (Windows)
+
+**...test the API**
+→ Run `../test_api_client.py` or see [API Testing Guide](API_TESTING.md)
 
 **...add a custom tool**
 → See [Custom Tools Development](CUSTOM_TOOLS.md)
