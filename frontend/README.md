@@ -1,73 +1,160 @@
-# React + TypeScript + Vite
+# Agentic Console - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Beautiful terminal-style interface for the Agentic Backend.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 🎨 Terminal-inspired cyberpunk UI
+- 🔄 Real-time health monitoring
+- 🛠️ Tool usage visualization
+- 📊 RAG source browser
+- 💬 Persistent conversation sessions
+- ⚡ Live API integration
 
-## React Compiler
+## Quick Start
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. Install Dependencies
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 2. Configure API
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Create `.env` file:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cp .env.example .env
 ```
+
+Edit `.env` and set your API key:
+
+```env
+VITE_API_URL=http://localhost:8000
+VITE_API_KEY=your-internal-api-key-here
+```
+
+**Get your API key** from the backend `.env` file (`INTERNAL_API_KEY`)
+
+### 3. Start Development Server
+
+```bash
+npm run dev
+```
+
+Frontend will be available at http://localhost:5173
+
+### 4. Make Sure Backend is Running
+
+The frontend connects to the backend API at `http://localhost:8000`. Ensure your backend is running:
+
+```bash
+# In the root directory
+./quick-start.sh
+
+# Or manually
+docker compose up -d
+```
+
+## Build for Production
+
+```bash
+# Build
+npm run build
+
+# Preview build
+npm run preview
+```
+
+The built files will be in the `dist/` directory.
+
+## Development
+
+### API Configuration
+
+The frontend uses environment variables for API configuration:
+
+- `VITE_API_URL`: Backend API base URL (default: `http://localhost:8000`)
+- `VITE_API_KEY`: API key for authentication
+
+These can be set in `.env` or `.env.local` for local development.
+
+### Vite Proxy
+
+The Vite dev server is configured to proxy `/api/*` requests to the backend to avoid CORS issues during development. See `vite.config.ts`.
+
+## Features Overview
+
+### Health Monitoring
+
+The console automatically checks the health of:
+- FastAPI backend
+- Qdrant vector database
+- Redis session store
+
+Status indicators update in real-time in the header.
+
+### Tool Visualization
+
+When the agent uses tools, they flash in the toolbar:
+- CALC - Calculator
+- WEB - Web search
+- RAG - Document search
+- FILE - File operations
+- CODE - Python execution
+- HTTP - HTTP requests
+
+### RAG Sources
+
+When documents are retrieved for RAG, you can click "VIEW SOURCES" to see:
+- Source document names
+- Similarity scores
+- Content snippets
+
+### Session Persistence
+
+Conversations are persistent across page reloads using session IDs. The session ID is displayed in the toolbar.
+
+## Troubleshooting
+
+### "Failed to fetch" errors
+
+**Check backend is running:**
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+**Check CORS settings** in backend `app/main.py`
+
+**Check API key** in `.env` matches backend
+
+### Backend connection refused
+
+Make sure Docker services are running:
+```bash
+docker compose ps
+```
+
+All services should show as "healthy" or "running".
+
+### Port conflicts
+
+If port 5173 is in use, change it in `vite.config.ts`:
+
+```ts
+server: {
+  port: 3000, // or any available port
+  // ...
+}
+```
+
+## Tech Stack
+
+- **React 19.2.0** - UI library
+- **TypeScript 5.9.3** - Type safety
+- **Vite 7.2.4** - Build tool and dev server
+- **No CSS framework** - Pure inline styles for terminal aesthetic
+
+## License
+
+Same as parent project

@@ -91,3 +91,4 @@ Thumbs.db
 *.tmp
 .idea/
 *.iml
+frontend/.env
