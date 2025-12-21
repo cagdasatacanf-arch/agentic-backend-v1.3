@@ -1,14 +1,21 @@
 """
-API Routes for Tool Metrics and Output Quality Evaluation
+API Routes for Tool Metrics, Quality Evaluation, and Advanced Retrieval
 
-Endpoints:
+Phase 1 Endpoints:
 - GET /api/v1/metrics/tools - Get all tool metrics
 - GET /api/v1/metrics/tools/{tool_name} - Get specific tool metrics
 - POST /api/v1/quality/evaluate - Evaluate an answer's quality
 - POST /api/v1/quality/batch - Batch evaluate multiple answers
 - POST /api/v1/rag/multihop - Perform multi-hop retrieval
 
-Part of Phase 1: Agentic AI Enhancements
+Phase 2 Endpoints:
+- POST /api/v1/rag/hybrid - Hybrid search (BM25 + embeddings)
+- POST /api/v1/rag/rerank - Re-rank documents with cross-encoder
+- POST /api/v1/rag/retrieve-rerank - Complete pipeline (retrieve + rerank)
+- POST /api/v1/rag/tune - Auto-tune RAG parameters
+- POST /api/v1/rag/compare-methods - Compare retrieval methods
+
+Part of Agentic AI Enhancements (Phase 1 & 2)
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -434,3 +441,356 @@ async def metrics_health() -> Dict:
             "metrics_enabled": False,
             "error": str(e)
         }
+
+# ============================================================================
+# PHASE 2: ADVANCED RETRIEVAL ENDPOINTS
+# ============================================================================
+
+class HybridSearchRequest(BaseModel):
+    """Request for hybrid search"""
+    query: str = Field(..., description="Search query")
+    top_k: int = Field(10, ge=1, le=50, description="Number of results")
+    alpha: float = Field(0.7, ge=0.0, le=1.0, description="Weight for dense vs sparse (0.0=BM25 only, 1.0=embeddings only)")
+    verbose: bool = Field(False, description="Include detailed logs")
+
+
+class RerankRequest(BaseModel):
+    """Request for re-ranking"""
+    query: str = Field(..., description="Search query")
+    documents: List[Dict] = Field(..., description="Documents to re-rank")
+    top_k: Optional[int] = Field(None, description="Number of results (default: all)")
+    verbose: bool = Field(False, description="Include detailed logs")
+
+
+class RetrieveRerankRequest(BaseModel):
+    """Request for combined retrieve + rerank pipeline"""
+    query: str = Field(..., description="Search query")
+    initial_top_k: int = Field(20, ge=5, le=100, description="Documents to retrieve initially")
+    final_top_k: int = Field(5, ge=1, le=20, description="Documents to return after re-ranking")
+    use_hybrid: bool = Field(True, description="Use hybrid search for initial retrieval")
+    verbose: bool = Field(False, description="Include detailed logs")
+
+
+class TuneRAGRequest(BaseModel):
+    """Request for RAG parameter tuning"""
+    test_queries: List[Dict[str, str]] = Field(
+        ...,
+        description="Test queries with ground truth: [{'question': ..., 'ground_truth': ...}, ...]"
+    )
+    use_hybrid: bool = Field(False, description="Tune for hybrid search")
+    quick: bool = Field(True, description="Use quick mode (fewer combinations)")
+    verbose: bool = Field(True, description="Include detailed logs")
+
+
+class CompareMethodsRequest(BaseModel):
+    """Request to compare retrieval methods"""
+    query: str = Field(..., description="Search query")
+    top_k: int = Field(5, ge=1, le=20, description="Results per method")
+
+
+@router.post("/rag/hybrid")
+async def hybrid_search_endpoint(request: HybridSearchRequest) -> Dict:
+    """
+    Perform hybrid search combining BM25 and dense embeddings.
+
+    Hybrid search uses Reciprocal Rank Fusion (RRF) to combine:
+    - BM25 (keyword/sparse matching) - Good for exact matches, names, acronyms
+    - Dense embeddings (semantic) - Good for meaning, context, paraphrases
+
+    Typically 15-25% better than single-method retrieval.
+
+    Example:
+        POST /api/v1/rag/hybrid
+        {
+            "query": "What is Python used for?",
+            "top_k": 10,
+            "alpha": 0.7,
+            "verbose": false
+        }
+
+    Returns:
+        {
+            "query": "...",
+            "results": [...],
+            "count": 10,
+            "method": "hybrid",
+            "config": {"alpha": 0.7, "top_k": 10}
+        }
+    """
+    try:
+        from app.services.hybrid_search import get_hybrid_retriever
+
+        # Get or initialize hybrid retriever
+        retriever = await get_hybrid_retriever()
+
+        # Perform search
+        results = await retriever.hybrid_search(
+            query=request.query,
+            top_k=request.top_k,
+            alpha=request.alpha,
+            verbose=request.verbose
+        )
+
+        return {
+            "query": request.query,
+            "results": results,
+            "count": len(results),
+            "method": "hybrid",
+            "config": {
+                "alpha": request.alpha,
+                "top_k": request.top_k
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Hybrid search failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Hybrid search failed: {str(e)}")
+
+
+@router.post("/rag/rerank")
+async def rerank_endpoint(request: RerankRequest) -> Dict:
+    """
+    Re-rank documents using cross-encoder.
+
+    Uses LLM-as-ranker to score relevance of each document to the query.
+    More accurate than cosine similarity but slower (use after initial retrieval).
+
+    Example:
+        POST /api/v1/rag/rerank
+        {
+            "query": "What is Python?",
+            "documents": [{...}, {...}],
+            "top_k": 5,
+            "verbose": false
+        }
+
+    Returns:
+        {
+            "query": "...",
+            "reranked": [...],  # Documents with "rerank_score"
+            "count": 5
+        }
+    """
+    try:
+        from app.services.reranker import rerank_documents
+
+        reranked = await rerank_documents(
+            query=request.query,
+            documents=request.documents,
+            top_k=request.top_k or len(request.documents),
+            verbose=request.verbose
+        )
+
+        return {
+            "query": request.query,
+            "reranked": reranked,
+            "count": len(reranked),
+            "original_count": len(request.documents)
+        }
+
+    except Exception as e:
+        logger.error(f"Re-ranking failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Re-ranking failed: {str(e)}")
+
+
+@router.post("/rag/retrieve-rerank")
+async def retrieve_rerank_endpoint(request: RetrieveRerankRequest) -> Dict:
+    """
+    Complete retrieval pipeline: Retrieve + Re-rank.
+
+    This is the RECOMMENDED approach for production RAG:
+    1. Retrieve initial_top_k documents (e.g., 20) using hybrid search
+    2. Re-rank using cross-encoder
+    3. Return final_top_k best documents (e.g., 5)
+
+    Example:
+        POST /api/v1/rag/retrieve-rerank
+        {
+            "query": "Explain quantum entanglement",
+            "initial_top_k": 20,
+            "final_top_k": 5,
+            "use_hybrid": true,
+            "verbose": false
+        }
+
+    Returns:
+        {
+            "query": "...",
+            "results": [...],  # Top 5 re-ranked documents
+            "count": 5,
+            "pipeline": {
+                "initial_retrieval": "hybrid",
+                "initial_count": 20,
+                "reranking": "cross-encoder",
+                "final_count": 5
+            }
+        }
+    """
+    try:
+        from app.services.reranker import retrieve_and_rerank
+
+        results = await retrieve_and_rerank(
+            query=request.query,
+            initial_top_k=request.initial_top_k,
+            final_top_k=request.final_top_k,
+            use_hybrid=request.use_hybrid,
+            verbose=request.verbose
+        )
+
+        return {
+            "query": request.query,
+            "results": results,
+            "count": len(results),
+            "pipeline": {
+                "initial_retrieval": "hybrid" if request.use_hybrid else "dense",
+                "initial_count": request.initial_top_k,
+                "reranking": "cross-encoder",
+                "final_count": request.final_top_k
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Retrieve+rerank pipeline failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Pipeline failed: {str(e)}")
+
+
+@router.post("/rag/tune")
+async def tune_rag_endpoint(request: TuneRAGRequest) -> Dict:
+    """
+    Auto-tune RAG parameters using test queries.
+
+    Performs grid search over:
+    - top_k: [3, 5, 7, 10]
+    - score_threshold: [0.0, 0.5, 0.6, 0.7]
+    - alpha (if hybrid): [0.5, 0.7, 0.9]
+
+    Evaluates each combination using output quality scoring.
+
+    Example:
+        POST /api/v1/rag/tune
+        {
+            "test_queries": [
+                {"question": "What is Python?", "ground_truth": "Python is a programming language..."},
+                {"question": "What is RAG?", "ground_truth": "RAG is..."}
+            ],
+            "use_hybrid": false,
+            "quick": true,
+            "verbose": true
+        }
+
+    Returns:
+        {
+            "best_parameters": {
+                "top_k": 5,
+                "score_threshold": 0.6,
+                "alpha": 0.7
+            },
+            "avg_quality_score": 0.85,
+            "test_count": 10,
+            "recommendation": "..."
+        }
+    """
+    try:
+        from app.services.rag_auto_tuner import RAGAutoTuner
+
+        if len(request.test_queries) < 3:
+            raise HTTPException(
+                status_code=400,
+                detail="At least 3 test queries required for tuning"
+            )
+
+        tuner = RAGAutoTuner(use_hybrid=request.use_hybrid)
+
+        # Run tuning
+        best_params = await tuner.tune(
+            test_queries=request.test_queries,
+            quick=request.quick,
+            verbose=request.verbose
+        )
+
+        # Get full results for recommendation
+        results = await tuner.grid_search(
+            test_queries=request.test_queries,
+            verbose=False
+        )
+
+        recommendation = tuner.generate_recommendation(results)
+
+        return {
+            "best_parameters": {
+                "top_k": best_params.top_k,
+                "score_threshold": best_params.score_threshold,
+                "alpha": best_params.alpha
+            },
+            "avg_quality_score": results[0].avg_quality_score,
+            "avg_precision": results[0].avg_retrieval_precision,
+            "test_count": len(request.test_queries),
+            "recommendation": recommendation,
+            "all_results": [
+                {
+                    "params": {
+                        "top_k": r.parameters.top_k,
+                        "score_threshold": r.parameters.score_threshold,
+                        "alpha": r.parameters.alpha
+                    },
+                    "avg_quality": r.avg_quality_score,
+                    "avg_precision": r.avg_retrieval_precision
+                }
+                for r in results[:5]  # Top 5 configurations
+            ]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RAG tuning failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Tuning failed: {str(e)}")
+
+
+@router.post("/rag/compare-methods")
+async def compare_methods_endpoint(request: CompareMethodsRequest) -> Dict:
+    """
+    Compare different retrieval methods side by side.
+
+    Compares:
+    - Dense (embeddings only)
+    - Sparse (BM25 only)
+    - Hybrid (BM25 + embeddings)
+
+    Useful for understanding which method works best for your query types.
+
+    Example:
+        POST /api/v1/rag/compare-methods
+        {
+            "query": "What are the benefits of Python?",
+            "top_k": 5
+        }
+
+    Returns:
+        {
+            "query": "...",
+            "dense": {"count": 5, "results": [...]},
+            "sparse": {"count": 5, "results": [...]},
+            "hybrid": {"count": 5, "results": [...]},
+            "analysis": {
+                "unique_to_dense": 2,
+                "unique_to_sparse": 1,
+                "overlap": 2
+            }
+        }
+    """
+    try:
+        from app.services.hybrid_search import get_hybrid_retriever
+
+        retriever = await get_hybrid_retriever()
+
+        comparison = await retriever.compare_methods(
+            query=request.query,
+            top_k=request.top_k
+        )
+
+        return comparison
+
+    except Exception as e:
+        logger.error(f"Method comparison failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Comparison failed: {str(e)}")
