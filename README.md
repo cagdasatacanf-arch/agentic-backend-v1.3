@@ -1,7 +1,6 @@
-<<<<<<< HEAD
-# agentic-backend-v1.3- Production-Ready FastAPI Application
+# agentic-backend-v1.3
 
-Complete production-ready FastAPI backend for agentic AI systems with RAG (Retrieval-Augmented Generation).
+Production-ready FastAPI backend for agentic AI systems with RAG (Retrieval-Augmented Generation) and multi-agent orchestration.
 
 ## Features
 
@@ -12,20 +11,22 @@ Complete production-ready FastAPI backend for agentic AI systems with RAG (Retri
 - CORS support
 
 ✅ **AI/ML Capabilities**
-- OpenAI integration (GPT-4 / GPT-4o)
+- OpenAI integration (GPT-4o for chat, text-embedding-3-small for embeddings)
+- LangChain & LangGraph for agent orchestration
 - Vector embeddings with Qdrant
-- Semantic search
-- RAG (Retrieval-Augmented Generation) pipeline
+- Semantic search and RAG pipeline
+- 13+ built-in tools (calculator, web search, file operations, code execution, etc.)
 
 ✅ **Production Ready**
 - Docker containerization
-- Multi-service orchestration (app + Redis + Qdrant + Jaeger)
+- Multi-service orchestration (FastAPI + Redis + Qdrant + Jaeger)
+- Persistent conversation memory via Redis
 - Health checks for all services
-- Logging & monitoring
 - Distributed tracing via OpenTelemetry + Jaeger
+- Structured logging with Loguru
 
 ✅ **Caching & Performance**
-- Redis caching layer
+- Redis for session management and caching
 - Request throttling (SlowAPI)
 - Optimized vector search
 - Configurable timeouts & resource limits
@@ -37,12 +38,30 @@ Complete production-ready FastAPI backend for agentic AI systems with RAG (Retri
 ### Prerequisites
 
 - Docker & Docker Compose installed
-- Python 3.11+ (for local dev)
 - OpenAI API key (https://platform.openai.com)
+- Python 3.11+ (optional, for local dev)
 
-### 1. Clone & Configure
+### Automated Setup (Recommended) ⭐
 
-=======
-# agentic-backend-v1.3
-Production-ready FastAPI backend for agentic AI systems with RAG and OpenAI integration.
->>>>>>> a7dc324e0fc05f8305287a0e66ff5d07f7b59cb2
+**Linux/macOS:**
+```bash
+./quick-start.sh
+```
+
+**Windows:**
+```cmd
+quick-start.bat
+```
+
+The script will automatically:
+1. Check prerequisites
+2. Configure environment variables
+3. Build and start all services
+4. Run health checks
+5. Display service URLs and test commands
+
+See [SETUP.md](SETUP.md) for detailed setup instructions.
+
+### Manual Setup
+
+#### 1. Clone & Configure
