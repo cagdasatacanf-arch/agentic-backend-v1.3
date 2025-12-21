@@ -18,6 +18,12 @@ Comprehensive guides for configuring and extending your agentic backend.
 | **[LangSmith Setup](LANGSMITH_SETUP.md)** | Monitor and debug with LangSmith | 15 min | ⭐ Beginner |
 | **[RAG Optimization](RAG_OPTIMIZATION.md)** | Improve retrieval quality and performance | 45 min | ⭐⭐⭐ Advanced |
 
+### Advanced Topics
+
+| Guide | Description | Time | Difficulty |
+|-------|-------------|------|------------|
+| **[Agentic AI Enhancements](AGENTIC_AI_ENHANCEMENTS.md)** | Research-backed roadmap for advanced features | 60 min | ⭐⭐⭐ Advanced |
+
 ### Integration Guides
 - **[../LANGGRAPH_INTEGRATION.md](../LANGGRAPH_INTEGRATION.md)** - LangGraph multi-agent system
 - **[../ERROR_GUIDELINES.md](../ERROR_GUIDELINES.md)** - Error handling standards
@@ -52,6 +58,9 @@ Comprehensive guides for configuring and extending your agentic backend.
 
 **...handle errors properly**
 → See [Error Guidelines](../ERROR_GUIDELINES.md)
+
+**...explore advanced AI techniques**
+→ See [Agentic AI Enhancements](AGENTIC_AI_ENHANCEMENTS.md)
 
 ---
 
