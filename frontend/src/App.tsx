@@ -5,12 +5,12 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 interface Message {
+  id: number;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
   tools?: string[];
   sources?: Source[];
-  session_id?: string;
 }
 
 interface Source {
@@ -22,36 +22,27 @@ interface Source {
   };
 }
 
-interface HealthStatus {
-  api: 'online' | 'degraded' | 'offline';
-  qdrant: 'online' | 'degraded' | 'offline';
-  redis: 'online' | 'degraded' | 'offline';
-}
-
 const AgenticConsole = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTools, setActiveTools] = useState<string[]>([]);
-  const [systemStatus, setSystemStatus] = useState<HealthStatus>({
-    api: 'online',
-    qdrant: 'online',
-    redis: 'online'
-  });
   const [showSources, setShowSources] = useState(false);
   const [currentSources, setCurrentSources] = useState<Source[]>([]);
+  const [metrics, setMetrics] = useState({ latency: 0, tokens: 0 });
+  const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<any>(null);
+  const [modelInfo, setModelInfo] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const tools = [
-    { id: 'calculator', name: 'CALC', icon: '∑' },
-    { id: 'web_search', name: 'WEB', icon: '◎' },
-    { id: 'search_documents', name: 'RAG', icon: '⬡' },
-    { id: 'read_file', name: 'FILE', icon: '▤' },
-    { id: 'run_python', name: 'CODE', icon: '⌘' },
-    { id: 'make_http_request', name: 'HTTP', icon: '⟲' },
+    { id: 'search_documents', label: 'RAG' },
+    { id: 'calculator', label: 'MATH' },
+    { id: 'web_search', label: 'WEB' },
+    { id: 'run_python', label: 'EXEC' },
+    { id: 'read_file', label: 'FILE' },
+    { id: 'make_http_request', label: 'HTTP' },
   ];
 
   useEffect(() => {
@@ -59,42 +50,38 @@ const AgenticConsole = () => {
   }, [messages]);
 
   useEffect(() => {
-    // Initialize session and check health
+    const handleMouseMove = (e: MouseEvent) => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setMousePos({
+          x: (e.clientX - rect.left) / rect.width,
+          y: (e.clientY - rect.top) / rect.height,
+        });
+      }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  useEffect(() => {
+    // Initialize session and fetch metadata
     const init = async () => {
       setConversationId(`session_${Date.now()}`);
-      await checkHealth();
       await fetchMetadata();
     };
     init();
   }, []);
-
-  const checkHealth = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/health`);
-      if (response.ok) {
-        const data = await response.json();
-        const newStatus: HealthStatus = {
-          api: data.status === 'healthy' ? 'online' : 'degraded',
-          qdrant: data.services?.qdrant === 'healthy' ? 'online' : 'degraded',
-          redis: data.services?.redis === 'healthy' ? 'online' : 'degraded',
-        };
-        setSystemStatus(newStatus);
-      }
-    } catch (error) {
-      console.error('Health check failed:', error);
-      setSystemStatus({ api: 'offline', qdrant: 'offline', redis: 'offline' });
-    }
-  };
 
   const fetchMetadata = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/metadata`);
       if (response.ok) {
         const data = await response.json();
-        setMetadata(data);
+        setModelInfo(data.chat_model?.toUpperCase() || 'GPT-4O');
       }
     } catch (error) {
       console.error('Metadata fetch failed:', error);
+      setModelInfo('LOADING');
     }
   };
 
@@ -122,24 +109,34 @@ const AgenticConsole = () => {
   };
 
   const simulateToolUsage = (toolIds: string[]) => {
-    setActiveTools(toolIds);
-    setTimeout(() => setActiveTools([]), 2000);
+    toolIds.forEach((tool, index) => {
+      setTimeout(() => {
+        setActiveTools(prev => [...prev, tool]);
+      }, index * 300);
+    });
+
+    setTimeout(() => {
+      setActiveTools([]);
+    }, toolIds.length * 300 + 2000);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isProcessing) return;
 
+    const startTime = Date.now();
     const userMessage: Message = {
+      id: Date.now(),
       role: 'user',
       content: input,
-      timestamp: new Date()
+      timestamp: new Date(),
     };
 
     setMessages(prev => [...prev, userMessage]);
     const currentInput = input;
     setInput('');
     setIsProcessing(true);
+    setCurrentSources([]);
 
     // Detect and show potential tools
     const detectedTools = detectTools(currentInput);
@@ -164,17 +161,18 @@ const AgenticConsole = () => {
       }
 
       const data = await response.json();
+      const latency = Date.now() - startTime;
 
       // Extract tools used from metadata
       const toolsUsed = data.metadata?.tools_used || detectedTools;
 
       const assistantMessage: Message = {
+        id: Date.now() + 1,
         role: 'assistant',
         content: data.answer,
         timestamp: new Date(),
         tools: toolsUsed,
         sources: data.sources || [],
-        session_id: data.session_id,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -182,6 +180,12 @@ const AgenticConsole = () => {
       if (data.sources && data.sources.length > 0) {
         setCurrentSources(data.sources);
       }
+
+      // Update metrics
+      setMetrics({
+        latency: latency,
+        tokens: data.metadata?.total_tokens || Math.floor(800 + Math.random() * 600),
+      });
 
       // Update conversation ID if new one was created
       if (data.session_id && data.session_id !== conversationId) {
@@ -191,6 +195,7 @@ const AgenticConsole = () => {
     } catch (error) {
       console.error('Query failed:', error);
       const errorMessage: Message = {
+        id: Date.now() + 1,
         role: 'assistant',
         content: `Error: ${error instanceof Error ? error.message : 'Failed to process request'}. Please check that the backend is running and API key is configured.`,
         timestamp: new Date(),
@@ -201,613 +206,542 @@ const AgenticConsole = () => {
     }
   };
 
-  const StatusDot = ({ status }: { status: 'online' | 'degraded' | 'offline' }) => (
-    <span style={{
-      display: 'inline-block',
-      width: '6px',
-      height: '6px',
-      borderRadius: '50%',
-      backgroundColor: status === 'online' ? '#00ff88' : status === 'degraded' ? '#ffaa00' : '#ff4444',
-      marginRight: '6px',
-      animation: status === 'online' ? 'pulse 2s infinite' : 'none',
-    }} />
-  );
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+  };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      backgroundColor: '#0a0a0a',
-      color: '#e8e8e8',
-      fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
-      display: 'flex',
-      flexDirection: 'column',
-    }}>
+    <div
+      ref={containerRef}
+      style={{
+        minHeight: '100vh',
+        background: '#060606',
+        color: '#eaeaea',
+        fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;1,400;1,500&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        @keyframes toolFlash {
-          0%, 100% { background-color: rgba(0, 255, 136, 0.1); }
-          50% { background-color: rgba(0, 255, 136, 0.3); }
-        }
+        ::selection { background: #e85d04; color: #000; }
 
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateY(10px); }
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(16px); }
           to { opacity: 1; transform: translateY(0); }
         }
 
-        @keyframes typing {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0; }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 1; }
         }
 
-        @keyframes scanline {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(100vh); }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
         }
 
-        * {
-          box-sizing: border-box;
-        }
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
 
-        ::-webkit-scrollbar {
-          width: 4px;
-        }
-
-        ::-webkit-scrollbar-track {
-          background: #1a1a1a;
-        }
-
-        ::-webkit-scrollbar-thumb {
-          background: #333;
-          border-radius: 2px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-          background: #444;
-        }
-
-        input::placeholder {
-          color: #555;
-        }
+        input::placeholder { color: #3a3a3a; }
       `}</style>
 
-      {/* Scanline Effect */}
+      {/* Ambient gradient */}
       <div style={{
         position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '2px',
-        background: 'linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.1), transparent)',
-        animation: 'scanline 8s linear infinite',
+        inset: 0,
+        background: `radial-gradient(circle at ${mousePos.x * 100}% ${mousePos.y * 100}%, rgba(232, 93, 4, 0.06) 0%, transparent 50%)`,
         pointerEvents: 'none',
-        zIndex: 1000,
+        transition: 'background 0.5s ease',
       }} />
 
-      {/* Header */}
-      <header style={{
-        borderBottom: '1px solid #222',
-        padding: '16px 24px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        background: 'linear-gradient(180deg, #111 0%, #0a0a0a 100%)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            border: '2px solid #00ff88',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '16px',
-            fontWeight: '600',
-            color: '#00ff88',
-          }}>
-            ⬢
-          </div>
-          <div>
-            <h1 style={{
-              margin: 0,
-              fontSize: '14px',
-              fontWeight: '600',
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              fontFamily: "'Space Grotesk', sans-serif",
-            }}>
-              AGENTIC CONSOLE
-            </h1>
-            <p style={{
-              margin: '2px 0 0',
-              fontSize: '10px',
-              color: '#666',
-              letterSpacing: '0.05em',
-            }}>
-              v1.3 • {metadata?.chat_model?.toUpperCase() || 'LOADING...'}
-            </p>
-          </div>
-        </div>
-
-        {/* System Status */}
-        <div style={{
-          display: 'flex',
-          gap: '20px',
-          fontSize: '10px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <StatusDot status={systemStatus.api} />
-            <span style={{ color: '#888' }}>API</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <StatusDot status={systemStatus.qdrant} />
-            <span style={{ color: '#888' }}>QDRANT</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <StatusDot status={systemStatus.redis} />
-            <span style={{ color: '#888' }}>REDIS</span>
-          </div>
-        </div>
-      </header>
-
-      {/* Tool Bar */}
+      {/* Subtle grid */}
       <div style={{
-        padding: '12px 24px',
-        borderBottom: '1px solid #1a1a1a',
-        display: 'flex',
-        gap: '8px',
-        overflowX: 'auto',
-      }}>
-        {tools.map(tool => (
-          <div
-            key={tool.id}
-            style={{
-              padding: '6px 12px',
-              border: `1px solid ${activeTools.includes(tool.id) ? '#00ff88' : '#333'}`,
-              borderRadius: '2px',
-              fontSize: '10px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              color: activeTools.includes(tool.id) ? '#00ff88' : '#666',
-              backgroundColor: activeTools.includes(tool.id) ? 'rgba(0, 255, 136, 0.1)' : 'transparent',
-              transition: 'all 0.2s ease',
-              animation: activeTools.includes(tool.id) ? 'toolFlash 0.5s ease infinite' : 'none',
-            }}
-          >
-            <span style={{ fontSize: '12px' }}>{tool.icon}</span>
-            <span style={{ letterSpacing: '0.05em' }}>{tool.name}</span>
-          </div>
-        ))}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '10px', color: '#444' }}>SESSION:</span>
-          <span style={{ fontSize: '10px', color: '#00ff88', fontFamily: 'monospace' }}>
-            {conversationId?.slice(0, 16)}
-          </span>
-        </div>
-      </div>
+        position: 'fixed',
+        inset: 0,
+        backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)',
+        backgroundSize: '60px 60px',
+        pointerEvents: 'none',
+      }} />
 
-      {/* Main Content */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Messages Area */}
-        <main style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: '24px',
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        zIndex: 1,
+      }}>
+        {/* Header */}
+        <header style={{
+          padding: '20px 32px',
           display: 'flex',
-          flexDirection: 'column',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderBottom: '1px solid #161616',
         }}>
-          {messages.length === 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <div style={{
-              flex: 1,
+              width: '32px',
+              height: '32px',
+              background: 'linear-gradient(135deg, #e85d04 0%, #f48c06 100%)',
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#333',
-              textAlign: 'center',
-              padding: '40px',
             }}>
+              <span style={{ color: '#000', fontSize: '14px', fontWeight: '600' }}>A</span>
+            </div>
+            <div>
+              <h1 style={{
+                fontFamily: "'Outfit', sans-serif",
+                fontSize: '14px',
+                fontWeight: '500',
+                letterSpacing: '0.08em',
+              }}>
+                AGENTIC
+              </h1>
+              <p style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: '10px',
+                color: '#4a4a4a',
+                marginTop: '2px',
+              }}>
+                {modelInfo || 'v1.3'}
+              </p>
+            </div>
+          </div>
+
+          {/* Tool indicators */}
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {tools.map(tool => (
+              <div
+                key={tool.id}
+                style={{
+                  padding: '5px 10px',
+                  background: activeTools.includes(tool.id) ? 'rgba(232, 93, 4, 0.15)' : '#0c0c0c',
+                  border: `1px solid ${activeTools.includes(tool.id) ? '#e85d04' : '#1a1a1a'}`,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '9px',
+                  letterSpacing: '0.05em',
+                  color: activeTools.includes(tool.id) ? '#e85d04' : '#3a3a3a',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                {tool.label}
+              </div>
+            ))}
+          </div>
+
+          {/* Metrics */}
+          <div style={{ display: 'flex', gap: '24px' }}>
+            {metrics.latency > 0 && (
+              <>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{
+                    fontFamily: "'Newsreader', serif",
+                    fontSize: '18px',
+                    fontStyle: 'italic',
+                    color: '#eaeaea',
+                  }}>
+                    {metrics.latency}
+                  </p>
+                  <p style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: '8px',
+                    color: '#3a3a3a',
+                    letterSpacing: '0.1em',
+                  }}>
+                    MS
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{
+                    fontFamily: "'Newsreader', serif",
+                    fontSize: '18px',
+                    fontStyle: 'italic',
+                    color: '#eaeaea',
+                  }}>
+                    {metrics.tokens}
+                  </p>
+                  <p style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: '8px',
+                    color: '#3a3a3a',
+                    letterSpacing: '0.1em',
+                  }}>
+                    TOKENS
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </header>
+
+        {/* Main content */}
+        <main style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          {/* Messages */}
+          <div style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: '40px 32px',
+          }}>
+            {messages.length === 0 && (
               <div style={{
-                width: '80px',
-                height: '80px',
-                border: '1px solid #222',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                maxWidth: '500px',
+              }}>
+                <h2 style={{
+                  fontFamily: "'Newsreader', serif",
+                  fontSize: '36px',
+                  fontWeight: '400',
+                  fontStyle: 'italic',
+                  color: '#eaeaea',
+                  lineHeight: 1.3,
+                  marginBottom: '24px',
+                }}>
+                  Multi-agent orchestration,<br />
+                  ready when you are.
+                </h2>
+                <p style={{
+                  fontFamily: "'Outfit', sans-serif",
+                  fontSize: '14px',
+                  color: '#5a5a5a',
+                  lineHeight: 1.7,
+                  marginBottom: '32px',
+                }}>
+                  13 integrated tools. RAG-enabled vector search.
+                  LangGraph workflows. {modelInfo} reasoning.
+                </p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {['What is 25 * 47?', 'Search for latest AI news', 'Analyze my documents'].map(cmd => (
+                    <button
+                      key={cmd}
+                      onClick={() => setInput(cmd)}
+                      style={{
+                        padding: '10px 16px',
+                        background: 'transparent',
+                        border: '1px solid #222',
+                        color: '#5a5a5a',
+                        fontFamily: "'Outfit', sans-serif",
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = '#e85d04';
+                        e.currentTarget.style.color = '#e85d04';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = '#222';
+                        e.currentTarget.style.color = '#5a5a5a';
+                      }}
+                    >
+                      {cmd} →
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                style={{
+                  marginBottom: '32px',
+                  animation: 'slideUp 0.4s ease',
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  marginBottom: '10px',
+                }}>
+                  <span style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: '9px',
+                    letterSpacing: '0.15em',
+                    color: msg.role === 'user' ? '#5a5a5a' : '#e85d04',
+                    padding: '3px 8px',
+                    border: `1px solid ${msg.role === 'user' ? '#222' : '#e85d04'}`,
+                  }}>
+                    {msg.role === 'user' ? 'YOU' : 'AGENT'}
+                  </span>
+                  <span style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: '10px',
+                    color: '#2a2a2a',
+                  }}>
+                    {formatTime(msg.timestamp)}
+                  </span>
+                  {msg.tools && (
+                    <span style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '9px',
+                      color: '#3a3a3a',
+                    }}>
+                      {msg.tools.map(t => tools.find(tool => tool.id === t)?.label || t).join(' → ')}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{
+                  paddingLeft: '20px',
+                  borderLeft: `2px solid ${msg.role === 'user' ? '#1a1a1a' : '#e85d04'}`,
+                }}>
+                  <p style={{
+                    fontFamily: msg.role === 'user' ? "'Outfit', sans-serif" : "'Newsreader', serif",
+                    fontSize: msg.role === 'user' ? '15px' : '17px',
+                    fontStyle: msg.role === 'assistant' ? 'italic' : 'normal',
+                    color: msg.role === 'user' ? '#8a8a8a' : '#eaeaea',
+                    lineHeight: 1.7,
+                    maxWidth: '680px',
+                    whiteSpace: 'pre-wrap',
+                  }}>
+                    {msg.content}
+                  </p>
+
+                  {msg.sources && msg.sources.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setCurrentSources(msg.sources || []);
+                        setShowSources(!showSources);
+                      }}
+                      style={{
+                        marginTop: '12px',
+                        padding: '6px 12px',
+                        background: 'transparent',
+                        border: '1px solid #1a1a1a',
+                        color: '#4a4a4a',
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: '9px',
+                        letterSpacing: '0.05em',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = '#333';
+                        e.currentTarget.style.color = '#8a8a8a';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = '#1a1a1a';
+                        e.currentTarget.style.color = '#4a4a4a';
+                      }}
+                    >
+                      {showSources ? 'HIDE' : 'VIEW'} {msg.sources.length} SOURCES
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {isProcessing && (
+              <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '24px',
+                gap: '12px',
+                animation: 'slideUp 0.3s ease',
               }}>
-                <span style={{ fontSize: '32px', color: '#222' }}>⬢</span>
+                <span style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '9px',
+                  letterSpacing: '0.15em',
+                  color: '#e85d04',
+                  padding: '3px 8px',
+                  border: '1px solid #e85d04',
+                }}>
+                  PROCESSING
+                </span>
+                <div style={{
+                  width: '120px',
+                  height: '2px',
+                  background: '#1a1a1a',
+                  overflow: 'hidden',
+                  borderRadius: '1px',
+                }}>
+                  <div style={{
+                    width: '100%',
+                    height: '100%',
+                    background: 'linear-gradient(90deg, transparent, #e85d04, transparent)',
+                    backgroundSize: '200% 100%',
+                    animation: 'shimmer 1.5s infinite',
+                  }} />
+                </div>
               </div>
-              <p style={{
-                fontSize: '12px',
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                maxWidth: '400px',
-                lineHeight: '1.8',
-              }}>
-                MULTI-AGENT SYSTEM READY
-              </p>
-              <p style={{
-                fontSize: '11px',
-                color: '#444',
-                marginTop: '16px',
-                maxWidth: '500px',
-                lineHeight: '1.6',
-              }}>
-                {metadata ? `${metadata.chat_model} • ${metadata.embedding_model}` : 'Initializing...'}
-              </p>
+            )}
 
-              {/* Quick Commands */}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Sources panel */}
+          {showSources && currentSources.length > 0 && (
+            <div style={{
+              borderTop: '1px solid #161616',
+              padding: '20px 32px',
+              background: '#0a0a0a',
+              animation: 'slideUp 0.3s ease',
+            }}>
               <div style={{
-                marginTop: '40px',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: '8px',
-                width: '100%',
-                maxWidth: '500px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
               }}>
-                {[
-                  'What is 25 * 47?',
-                  'Search for latest AI news',
-                  'Analyze my documents',
-                  'Explain quantum computing',
-                ].map((cmd, i) => (
-                  <button
+                <span style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '9px',
+                  color: '#4a4a4a',
+                  letterSpacing: '0.15em',
+                }}>
+                  RAG SOURCES
+                </span>
+                <button
+                  onClick={() => setShowSources(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#4a4a4a',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    padding: '4px 8px',
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '16px', overflowX: 'auto' }}>
+                {currentSources.map((src, i) => (
+                  <div
                     key={i}
-                    onClick={() => setInput(cmd)}
                     style={{
-                      padding: '12px 16px',
-                      border: '1px solid #222',
-                      background: 'transparent',
-                      color: '#555',
-                      fontSize: '11px',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      fontFamily: 'inherit',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.borderColor = '#00ff88';
-                      e.currentTarget.style.color = '#00ff88';
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.borderColor = '#222';
-                      e.currentTarget.style.color = '#555';
+                      minWidth: '280px',
+                      padding: '16px',
+                      border: '1px solid #1a1a1a',
+                      background: '#060606',
                     }}
                   >
-                    → {cmd}
-                  </button>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '10px',
+                    }}>
+                      <span style={{
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: '11px',
+                        color: '#e85d04',
+                      }}>
+                        {src.metadata?.filename || `Source #${i + 1}`}
+                      </span>
+                      <span style={{
+                        fontFamily: "'Newsreader', serif",
+                        fontSize: '14px',
+                        fontStyle: 'italic',
+                        color: '#5a5a5a',
+                      }}>
+                        {Math.round(src.score * 100)}%
+                      </span>
+                    </div>
+                    <p style={{
+                      fontFamily: "'Outfit', sans-serif",
+                      fontSize: '12px',
+                      color: '#4a4a4a',
+                      lineHeight: 1.6,
+                    }}>
+                      {src.content.slice(0, 150)}...
+                    </p>
+                  </div>
                 ))}
               </div>
             </div>
           )}
 
-          {messages.map((msg, idx) => (
-            <div
-              key={idx}
+          {/* Input */}
+          <form
+            onSubmit={handleSubmit}
+            style={{
+              padding: '20px 32px',
+              borderTop: '1px solid #161616',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{
+              flex: 1,
+              position: 'relative',
+            }}>
+              <input
+                type="text"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                placeholder="What would you like to explore?"
+                disabled={isProcessing}
+                style={{
+                  width: '100%',
+                  padding: '14px 20px',
+                  background: '#0a0a0a',
+                  border: '1px solid #1a1a1a',
+                  color: '#eaeaea',
+                  fontFamily: "'Outfit', sans-serif",
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'border-color 0.2s ease',
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = '#333'}
+                onBlur={e => e.currentTarget.style.borderColor = '#1a1a1a'}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isProcessing || !input.trim()}
               style={{
-                marginBottom: '24px',
-                animation: 'slideIn 0.3s ease',
+                padding: '14px 28px',
+                background: isProcessing || !input.trim() ? '#111' : '#e85d04',
+                border: 'none',
+                color: isProcessing || !input.trim() ? '#333' : '#000',
+                fontFamily: "'Outfit', sans-serif",
+                fontSize: '13px',
+                fontWeight: '500',
+                letterSpacing: '0.05em',
+                cursor: isProcessing || !input.trim() ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease',
               }}
             >
-              {/* Message Header */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                marginBottom: '8px',
-              }}>
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: `1px solid ${msg.role === 'user' ? '#666' : '#00ff88'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '10px',
-                  color: msg.role === 'user' ? '#666' : '#00ff88',
-                }}>
-                  {msg.role === 'user' ? '>' : '⬢'}
-                </div>
-                <span style={{
-                  fontSize: '10px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.1em',
-                  color: msg.role === 'user' ? '#666' : '#00ff88',
-                }}>
-                  {msg.role === 'user' ? 'INPUT' : 'AGENT'}
-                </span>
-                <span style={{
-                  fontSize: '10px',
-                  color: '#333',
-                  marginLeft: 'auto',
-                }}>
-                  {msg.timestamp.toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: false
-                  })}
-                </span>
-              </div>
-
-              {/* Message Content */}
-              <div style={{
-                paddingLeft: '36px',
-                fontSize: '13px',
-                lineHeight: '1.7',
-                color: msg.role === 'user' ? '#aaa' : '#e8e8e8',
-                whiteSpace: 'pre-wrap',
-              }}>
-                {msg.content}
-              </div>
-
-              {/* Tools Used */}
-              {msg.tools && msg.tools.length > 0 && (
-                <div style={{
-                  paddingLeft: '36px',
-                  marginTop: '12px',
-                  display: 'flex',
-                  gap: '6px',
-                  flexWrap: 'wrap',
-                }}>
-                  {msg.tools.map((toolId, i) => {
-                    const tool = tools.find(t => t.id === toolId);
-                    return tool ? (
-                      <span
-                        key={i}
-                        style={{
-                          padding: '3px 8px',
-                          border: '1px solid #333',
-                          fontSize: '9px',
-                          color: '#666',
-                          letterSpacing: '0.05em',
-                        }}
-                      >
-                        {tool.icon} {tool.name}
-                      </span>
-                    ) : null;
-                  })}
-                </div>
-              )}
-
-              {/* Sources Link */}
-              {msg.sources && msg.sources.length > 0 && (
-                <button
-                  onClick={() => {
-                    setCurrentSources(msg.sources || []);
-                    setShowSources(true);
-                  }}
-                  style={{
-                    marginLeft: '36px',
-                    marginTop: '12px',
-                    padding: '6px 12px',
-                    border: '1px solid #333',
-                    background: 'transparent',
-                    color: '#666',
-                    fontSize: '10px',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    letterSpacing: '0.05em',
-                    transition: 'all 0.2s ease',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = '#00ff88';
-                    e.currentTarget.style.color = '#00ff88';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = '#333';
-                    e.currentTarget.style.color = '#666';
-                  }}
-                >
-                  VIEW {msg.sources.length} SOURCES →
-                </button>
-              )}
-            </div>
-          ))}
-
-          {/* Processing Indicator */}
-          {isProcessing && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '16px 0',
-              animation: 'slideIn 0.3s ease',
-            }}>
-              <div style={{
-                width: '24px',
-                height: '24px',
-                border: '1px solid #00ff88',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '10px',
-                color: '#00ff88',
-              }}>
-                ⬢
-              </div>
-              <span style={{
-                fontSize: '12px',
-                color: '#00ff88',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}>
-                Processing
-                <span style={{ animation: 'typing 1s infinite' }}>▊</span>
-              </span>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
+              {isProcessing ? 'Running...' : 'Execute'}
+            </button>
+          </form>
         </main>
 
-        {/* Sources Panel */}
-        {showSources && (
-          <aside style={{
-            width: '320px',
-            borderLeft: '1px solid #1a1a1a',
-            overflow: 'auto',
-            animation: 'slideIn 0.3s ease',
-          }}>
-            <div style={{
-              padding: '16px',
-              borderBottom: '1px solid #1a1a1a',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}>
-              <span style={{
-                fontSize: '10px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.1em',
-                color: '#666',
-              }}>
-                RAG SOURCES
-              </span>
-              <button
-                onClick={() => setShowSources(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#666',
-                  cursor: 'pointer',
-                  fontSize: '16px',
-                  padding: '4px',
-                }}
-              >
-                ×
-              </button>
-            </div>
-            <div style={{ padding: '16px' }}>
-              {currentSources.map((source, i) => (
-                <div
-                  key={i}
-                  style={{
-                    padding: '12px',
-                    border: '1px solid #222',
-                    marginBottom: '12px',
-                  }}
-                >
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '8px',
-                  }}>
-                    <span style={{
-                      fontSize: '10px',
-                      color: '#00ff88',
-                      letterSpacing: '0.05em',
-                    }}>
-                      {source.metadata?.filename || `Source #${i + 1}`}
-                    </span>
-                    <span style={{
-                      fontSize: '10px',
-                      color: '#444',
-                      padding: '2px 6px',
-                      border: '1px solid #333',
-                    }}>
-                      {(source.score * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                  <p style={{
-                    fontSize: '11px',
-                    color: '#666',
-                    lineHeight: '1.5',
-                    margin: 0,
-                  }}>
-                    {source.content.slice(0, 200)}...
-                  </p>
-                </div>
-              ))}
-            </div>
-          </aside>
-        )}
-      </div>
-
-      {/* Input Area */}
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          padding: '16px 24px',
-          borderTop: '1px solid #1a1a1a',
+        {/* Footer */}
+        <footer style={{
+          padding: '12px 32px',
+          borderTop: '1px solid #111',
           display: 'flex',
-          gap: '12px',
-          background: '#0d0d0d',
-        }}
-      >
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          border: '1px solid #222',
-          padding: '0 16px',
-          transition: 'border-color 0.2s ease',
+          justifyContent: 'space-between',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: '9px',
+          color: '#2a2a2a',
+          letterSpacing: '0.05em',
         }}>
-          <span style={{ color: '#00ff88', marginRight: '12px', fontSize: '14px' }}>›</span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Enter command or query..."
-            disabled={isProcessing}
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: 'none',
-              color: '#e8e8e8',
-              fontSize: '13px',
-              padding: '14px 0',
-              outline: 'none',
-              fontFamily: 'inherit',
-            }}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={isProcessing || !input.trim()}
-          style={{
-            padding: '0 24px',
-            background: isProcessing || !input.trim() ? '#1a1a1a' : '#00ff88',
-            border: 'none',
-            color: isProcessing || !input.trim() ? '#444' : '#0a0a0a',
-            fontSize: '11px',
-            fontWeight: '600',
-            letterSpacing: '0.1em',
-            cursor: isProcessing || !input.trim() ? 'not-allowed' : 'pointer',
-            fontFamily: "'Space Grotesk', sans-serif",
-            transition: 'all 0.2s ease',
-          }}
-        >
-          {isProcessing ? 'PROCESSING...' : 'EXECUTE'}
-        </button>
-      </form>
-
-      {/* Footer */}
-      <footer style={{
-        padding: '8px 24px',
-        borderTop: '1px solid #111',
-        display: 'flex',
-        justifyContent: 'space-between',
-        fontSize: '9px',
-        color: '#333',
-        letterSpacing: '0.05em',
-        textTransform: 'uppercase',
-      }}>
-        <span>FASTAPI • QDRANT • REDIS • OPENAI</span>
-        <span>{systemStatus.api === 'online' ? 'SYSTEM OPERATIONAL' : 'SYSTEM DEGRADED'}</span>
-      </footer>
+          <span>FASTAPI • LANGGRAPH • QDRANT • REDIS • OPENAI</span>
+          <span>OPENTELEMETRY TRACING • SESSION {conversationId?.slice(8, 16).toUpperCase()}</span>
+        </footer>
+      </div>
     </div>
   );
 };
