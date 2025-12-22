@@ -175,6 +175,7 @@ from app.api.routes_query_langgraph import router as langgraph_router  # noqa: E
 from app.api.routes_metrics import router as metrics_router  # noqa: E402
 from app.api.routes_training import router as training_router  # noqa: E402
 from app.api.routes_vision import router as vision_router  # noqa: E402
+from app.api.routes_streaming import router as streaming_router  # noqa: E402
 
 app.include_router(query_router)
 app.include_router(docs_router)
@@ -191,3 +192,6 @@ app.include_router(training_router)
 
 # Add vision and multimodal routes (Phase 5: Vision & Multimodal Integration)
 app.include_router(vision_router)
+
+# Add streaming routes (Phase 6: Production & Enterprise Features)
+app.include_router(streaming_router)
