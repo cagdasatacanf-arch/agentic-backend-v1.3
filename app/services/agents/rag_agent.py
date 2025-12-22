@@ -16,11 +16,14 @@ Based on research:
 
 from typing import Dict, List, Optional
 import logging
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import settings
+from app.services.interaction_logger import log_interaction
+from app.services.output_quality import OutputQualityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +99,10 @@ class RAGSpecialist:
             }
         """
         logger.info(f"RAG query: {question[:60]}...")
+        start_time = time.perf_counter()
+
+        error_occurred = False
+        error_message = None
 
         try:
             # 1. Retrieve documents using best method
@@ -138,16 +145,56 @@ class RAGSpecialist:
             }
 
             logger.info(f"RAG query completed: {len(answer)} chars, {len(sources)} sources")
-            return result
 
         except Exception as e:
             logger.error(f"RAG query failed: {e}", exc_info=True)
-            return {
+            error_occurred = True
+            error_message = str(e)
+            result = {
                 "answer": f"Error: {str(e)}",
                 "error": str(e),
                 "agent_type": "rag",
                 "success": False
             }
+
+        finally:
+            # Calculate latency
+            latency_ms = (time.perf_counter() - start_time) * 1000
+
+            # Log interaction (Phase 4: Self-Improvement)
+            try:
+                # Quality scoring
+                quality_scores = None
+                if not error_occurred and result.get("success"):
+                    quality_scorer = OutputQualityScorer()
+                    quality_scores = await quality_scorer.score_answer(
+                        question=question,
+                        answer=result.get("answer", ""),
+                        sources=result.get("sources", [])
+                    )
+
+                # Log to training data
+                tools_used = [self._get_retrieval_method()]
+
+                log_interaction(
+                    query=question,
+                    answer=result.get("answer", ""),
+                    agent_type="rag",
+                    quality_scores=quality_scores,
+                    session_id=session_id,
+                    latency_ms=latency_ms,
+                    tools_used=tools_used,
+                    sources=result.get("sources", []),
+                    retrieval_method=result.get("retrieval_method"),
+                    error_occurred=error_occurred,
+                    error_message=error_message
+                )
+
+            except Exception as log_error:
+                # Don't fail the request if logging fails
+                logger.warning(f"Failed to log RAG interaction: {log_error}")
+
+        return result
 
     async def _retrieve_documents(
         self,

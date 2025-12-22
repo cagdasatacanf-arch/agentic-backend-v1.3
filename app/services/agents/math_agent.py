@@ -17,11 +17,14 @@ from typing import Dict, List, Optional
 import logging
 import math
 import re
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import settings
+from app.services.interaction_logger import log_interaction
+from app.services.output_quality import OutputQualityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +71,14 @@ class MathSpecialist:
 
         logger.info(f"MathSpecialist initialized with {model}")
 
-    async def solve(self, problem: str, show_steps: bool = True) -> Dict:
+    async def solve(self, problem: str, show_steps: bool = True, session_id: Optional[str] = None) -> Dict:
         """
         Solve a mathematical problem.
 
         Args:
             problem: Math problem description
             show_steps: Include step-by-step reasoning
+            session_id: Optional session ID for logging
 
         Returns:
             {
@@ -86,6 +90,7 @@ class MathSpecialist:
             }
         """
         logger.info(f"Solving math problem: {problem[:60]}...")
+        start_time = time.perf_counter()
 
         # Build prompt with chain-of-thought
         system_prompt = """You are a mathematical expert. Solve problems step-by-step.
@@ -99,6 +104,9 @@ For calculations, write Python code that can be executed.
 Be precise and show your work."""
 
         user_prompt = f"Problem: {problem}"
+
+        error_occurred = False
+        error_message = None
 
         try:
             # Get LLM response
@@ -144,16 +152,52 @@ Be precise and show your work."""
             }
 
             logger.info(f"Math problem solved: {result['answer'][:60]}...")
-            return result
 
         except Exception as e:
             logger.error(f"Math solving failed: {e}", exc_info=True)
-            return {
+            error_occurred = True
+            error_message = str(e)
+            result = {
                 "answer": f"Error: {str(e)}",
                 "error": str(e),
                 "agent_type": "math",
                 "success": False
             }
+
+        finally:
+            # Calculate latency
+            latency_ms = (time.perf_counter() - start_time) * 1000
+
+            # Log interaction (Phase 4: Self-Improvement)
+            try:
+                # Quality scoring
+                quality_scores = None
+                if not error_occurred and result.get("success"):
+                    quality_scorer = OutputQualityScorer()
+                    answer_str = str(result.get("answer", ""))
+                    quality_scores = await quality_scorer.score_answer(
+                        question=problem,
+                        answer=answer_str
+                    )
+
+                # Log to training data
+                log_interaction(
+                    query=problem,
+                    answer=str(result.get("answer", "")),
+                    agent_type="math",
+                    quality_scores=quality_scores,
+                    session_id=session_id,
+                    latency_ms=latency_ms,
+                    tools_used=["math_solver", "python_eval"] if result.get("calculation") else ["math_solver"],
+                    error_occurred=error_occurred,
+                    error_message=error_message
+                )
+
+            except Exception as log_error:
+                # Don't fail the request if logging fails
+                logger.warning(f"Failed to log math interaction: {log_error}")
+
+        return result
 
     def _extract_section(self, text: str, section_name: str) -> Optional[str]:
         """Extract a section from formatted response"""

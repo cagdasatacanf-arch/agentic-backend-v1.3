@@ -18,11 +18,14 @@ import logging
 import subprocess
 import tempfile
 import os
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import settings
+from app.services.interaction_logger import log_interaction
+from app.services.output_quality import OutputQualityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,8 @@ class CodeSpecialist:
         self,
         request: str,
         language: Optional[str] = None,
-        include_tests: bool = False
+        include_tests: bool = False,
+        session_id: Optional[str] = None
     ) -> Dict:
         """
         Generate code based on request.
@@ -74,6 +78,7 @@ class CodeSpecialist:
             request: Code generation request
             language: Programming language (auto-detected if None)
             include_tests: Generate unit tests
+            session_id: Optional session ID for logging
 
         Returns:
             {
@@ -86,6 +91,7 @@ class CodeSpecialist:
             }
         """
         logger.info(f"Generating code: {request[:60]}...")
+        start_time = time.perf_counter()
 
         # Build prompt
         system_prompt = """You are an expert programmer. Generate clean, well-documented code.
@@ -122,6 +128,9 @@ TESTS:
         else:
             user_prompt = f"Generate code: {request}"
 
+        error_occurred = False
+        error_message = None
+
         try:
             # Get LLM response
             messages = [
@@ -154,16 +163,57 @@ TESTS:
             }
 
             logger.info(f"Code generated: {detected_language}, {len(code) if code else 0} chars")
-            return result
 
         except Exception as e:
             logger.error(f"Code generation failed: {e}", exc_info=True)
-            return {
+            error_occurred = True
+            error_message = str(e)
+            result = {
                 "answer": f"Error: {str(e)}",
                 "error": str(e),
                 "agent_type": "code",
                 "success": False
             }
+
+        finally:
+            # Calculate latency
+            latency_ms = (time.perf_counter() - start_time) * 1000
+
+            # Log interaction (Phase 4: Self-Improvement)
+            try:
+                # Quality scoring
+                quality_scores = None
+                if not error_occurred and result.get("success"):
+                    quality_scorer = OutputQualityScorer()
+                    # For code, combine explanation and code snippet
+                    answer_str = f"{result.get('explanation', '')}\n\n```{result.get('language', 'code')}\n{result.get('code', '')[:500]}\n```"
+                    quality_scores = await quality_scorer.score_answer(
+                        question=request,
+                        answer=answer_str
+                    )
+
+                # Log to training data
+                tools_used = ["code_generator"]
+                if result.get("execution_result"):
+                    tools_used.append("python_executor")
+
+                log_interaction(
+                    query=request,
+                    answer=answer_str if not error_occurred else result.get("answer", ""),
+                    agent_type="code",
+                    quality_scores=quality_scores,
+                    session_id=session_id,
+                    latency_ms=latency_ms,
+                    tools_used=tools_used,
+                    error_occurred=error_occurred,
+                    error_message=error_message
+                )
+
+            except Exception as log_error:
+                # Don't fail the request if logging fails
+                logger.warning(f"Failed to log code interaction: {log_error}")
+
+        return result
 
     def _extract_language(self, text: str) -> Optional[str]:
         """Extract programming language from response"""
