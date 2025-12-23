@@ -1,0 +1,53 @@
+services:
+  python-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: python-app
+    restart: unless-stopped
+    init: true
+    # env_file: ./.env  # Uncomment if .env file exists
+    ports:
+      - "8000:8000"  # Exposed by backend Dockerfile
+    networks:
+      - app-network
+    depends_on:
+      - redis  # The backend likely uses Redis for caching (see routes_cache.py, cache_service.py)
+
+  typescript-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: typescript-frontend
+    restart: unless-stopped
+    init: true
+    # env_file: ./frontend/.env  # Uncomment if .env file exists
+    ports:
+      - "3000:3000"  # Exposed by frontend Dockerfile
+    networks:
+      - app-network
+    depends_on:
+      - python-app
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - app-network
+    # Uncomment the following lines to persist Redis data
+    # volumes:
+    #   - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  app-network:
+    driver: bridge
+
+# Uncomment to persist Redis data
+# volumes:
+#   redis-data:

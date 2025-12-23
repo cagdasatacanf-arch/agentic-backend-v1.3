@@ -1,0 +1,71 @@
+# --- Language-specific patterns ---
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+*.bak
+
+# Node.js / TypeScript
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# --- Development artifacts ---
+.idea/
+.vscode/
+*.swp
+*.swo
+dist/
+build/
+out/
+debug/
+*.log
+tmp/
+temp/
+*.tmp
+
+# --- Test files ---
+test/
+tests/
+*_test.go
+
+# --- Version control ---
+.git/
+.gitignore
+.svn/
+.hg/
+
+# --- Environment and secrets ---
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.crt
+config.local.*
+*.local.yml
+
+# --- Project-specific patterns ---
+# Documentation
+/docs/
+*.md
+README*
+
+# Docker files (do not include Dockerfile for build context)
+Dockerfile*
+docker-compose*
+
+# Local development
+.local/
+local/
+
+# --- Exclusions (allow needed files) ---
+!app/
+!frontend/
+!app/main.py
+!frontend/src/
+!frontend/public/
+
+# --- End of .dockerignore ---
