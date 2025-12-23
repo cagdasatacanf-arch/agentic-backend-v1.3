@@ -1,0 +1,60 @@
+# Prometheus Configuration for Agentic Backend
+# Scrapes metrics from the FastAPI application
+
+global:
+  scrape_interval: 15s      # How frequently to scrape targets
+  evaluation_interval: 15s  # How frequently to evaluate rules
+  scrape_timeout: 10s       # Timeout for scraping
+  external_labels:
+    cluster: 'agentic-backend'
+    environment: 'production'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - 'alertmanager:9093'
+
+# Load rules once and periodically evaluate them
+# rule_files:
+#   - 'alerts/*.yml'
+
+# Scrape configurations
+scrape_configs:
+  # ============================================================================
+  # Agentic Backend API
+  # ============================================================================
+  - job_name: 'agentic-backend'
+    static_configs:
+      - targets: ['api:8000']
+    metrics_path: '/api/v1/monitoring/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # ============================================================================
+  # Prometheus Self-Monitoring
+  # ============================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+
+  # ============================================================================
+  # Redis Exporter (if added)
+  # ============================================================================
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #   scrape_interval: 30s
+
+  # ============================================================================
+  # Node Exporter (if added for host metrics)
+  # ============================================================================
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']
+  #   scrape_interval: 30s

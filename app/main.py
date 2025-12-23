@@ -179,6 +179,7 @@ from app.api.routes_streaming import router as streaming_router  # noqa: E402
 from app.api.routes_cache import router as cache_router  # noqa: E402
 from app.api.routes_cost import router as cost_router  # noqa: E402
 from app.api.routes_rbac import router as rbac_router  # noqa: E402
+from app.api.routes_monitoring import router as monitoring_router  # noqa: E402
 
 app.include_router(query_router)
 app.include_router(docs_router)
@@ -207,3 +208,6 @@ app.include_router(cost_router)
 
 # Add RBAC and security routes (Phase 6: Production & Enterprise Features)
 app.include_router(rbac_router)
+
+# Add monitoring and metrics routes (Phase 6: Production & Enterprise Features)
+app.include_router(monitoring_router)
