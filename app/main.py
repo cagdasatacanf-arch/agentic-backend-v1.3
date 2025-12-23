@@ -176,6 +176,7 @@ from app.api.routes_metrics import router as metrics_router  # noqa: E402
 from app.api.routes_training import router as training_router  # noqa: E402
 from app.api.routes_vision import router as vision_router  # noqa: E402
 from app.api.routes_streaming import router as streaming_router  # noqa: E402
+from app.api.routes_cache import router as cache_router  # noqa: E402
 
 app.include_router(query_router)
 app.include_router(docs_router)
@@ -195,3 +196,6 @@ app.include_router(vision_router)
 
 # Add streaming routes (Phase 6: Production & Enterprise Features)
 app.include_router(streaming_router)
+
+# Add cache management routes (Phase 7: Advanced Production Features)
+app.include_router(cache_router)

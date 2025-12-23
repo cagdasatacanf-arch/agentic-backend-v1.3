@@ -34,3 +34,9 @@ langchain-core>=0.3.0
 
 # Phase 2: Advanced Retrieval
 rank-bm25==0.2.2  # Hybrid search (BM25 + embeddings)
+
+# Phase 5: Vision & Multimodal
+pillow==10.1.0  # Image processing
+
+# Phase 7: Advanced Production Features
+hiredis==2.2.3  # High-performance Redis parser
