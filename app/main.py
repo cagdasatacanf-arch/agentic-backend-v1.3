@@ -21,6 +21,9 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+# IMPORTANT: Load secrets before config initialization
+from app.utils import secrets_loader  # noqa: F401 - side effect import
+
 from app.config import settings
 
 LOGGING_CONFIG = {

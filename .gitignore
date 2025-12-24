@@ -92,3 +92,4 @@ Thumbs.db
 .idea/
 *.iml
 frontend/.env
+ssl/

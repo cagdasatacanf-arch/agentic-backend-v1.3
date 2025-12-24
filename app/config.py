@@ -1,11 +1,13 @@
 """
 Application configuration with Pydantic settings.
 Handles environment variables and validation.
+Supports Docker Secrets for secure credential management.
 """
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional
+from app.utils.secrets import get_secret
 
 
 class Settings(BaseSettings):
