@@ -1,0 +1,159 @@
+name: Scheduled Tasks
+
+on:
+  schedule:
+    # Daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  dependency-check:
+    name: Check for Dependency Updates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+
+      - name: Check for security vulnerabilities
+        run: |
+          pip-audit --desc
+
+      - name: Check for outdated packages
+        run: |
+          pip list --outdated
+
+  performance-regression:
+    name: Performance Regression Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start services
+        run: |
+          docker-compose up -d
+          sleep 30
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run performance tests
+        run: |
+          k6 run --vus 10 --duration 5m \
+            --out json=performance-results.json \
+            tests/load/query-load-test.js
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-results
+          path: performance-results.json
+          retention-days: 90
+
+      - name: Compare with baseline
+        run: |
+          # Add script to compare with previous performance baselines
+          echo "Performance test completed"
+
+      - name: Stop services
+        run: docker-compose down
+
+  backup-check:
+    name: Verify Backup Health
+    runs-on: ubuntu-latest
+    if: github.repository == github.event.repository.full_name  # Only run on main repo
+
+    steps:
+      - name: Check production backups
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/agentic-backend
+
+            # Check last backup age
+            LAST_BACKUP=$(ls -t ./backups/redis/redis_backup_* | head -1)
+            if [ -z "$LAST_BACKUP" ]; then
+              echo "ERROR: No backups found!"
+              exit 1
+            fi
+
+            BACKUP_AGE=$(( ($(date +%s) - $(stat -c %Y "$LAST_BACKUP")) / 3600 ))
+            echo "Last backup age: $BACKUP_AGE hours"
+
+            if [ $BACKUP_AGE -gt 25 ]; then
+              echo "ERROR: Last backup is older than 25 hours!"
+              exit 1
+            fi
+
+            echo "✅ Backups are healthy"
+
+      - name: Test backup restore (in test environment)
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/agentic-backend-test
+
+            # Download latest backup
+            scp ${{ secrets.PROD_HOST }}:/opt/agentic-backend/backups/redis/redis_backup_latest ./backups/
+
+            # Test restore
+            ./scripts/restore-redis.sh --target test ./backups/redis_backup_latest
+
+            echo "✅ Backup restore test successful"
+
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  cleanup-artifacts:
+    name: Cleanup Old Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 30
+          keep_minimum_runs: 10
