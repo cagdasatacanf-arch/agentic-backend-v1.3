@@ -36,6 +36,10 @@ from collections import OrderedDict
 logger = logging.getLogger(__name__)
 
 
+# Sentinel value to distinguish "not in cache" from "cached None"
+_CACHE_MISS = object()
+
+
 @dataclass
 class PerformanceMetrics:
     """Performance metrics for a function"""
@@ -92,12 +96,24 @@ class LRUCache:
                     del self.cache[key]
                     del self.expiry[key]
                     return None
-                
+
                 # Move to end (most recently used)
                 self.cache.move_to_end(key)
                 return self.cache[key]
-            
+
             return None
+
+    async def contains(self, key: str) -> bool:
+        """Check if key exists in cache (and not expired)"""
+        async with self._lock:
+            if key in self.cache:
+                if key in self.expiry and time.time() > self.expiry[key]:
+                    # Expired, remove it
+                    del self.cache[key]
+                    del self.expiry[key]
+                    return False
+                return True
+            return False
     
     async def set(self, key: str, value: Any, ttl: Optional[int] = None):
         """Set value in cache"""
@@ -220,22 +236,22 @@ def cached(ttl: int = 300, cache_none: bool = False):
         async def wrapper(*args, **kwargs):
             # Generate cache key
             cache_key = _generate_cache_key(func_name, args, kwargs)
-            
-            # Try to get from cache
-            cached_result = await _function_cache.get(cache_key)
-            if cached_result is not None:
+
+            # Check if key exists in cache
+            if await _function_cache.contains(cache_key):
+                cached_result = await _function_cache.get(cache_key)
                 _performance_metrics[func_name].cache_hits += 1
                 logger.debug(f"Cache hit for {func_name}")
                 return cached_result
-            
+
             # Cache miss, execute function
             _performance_metrics[func_name].cache_misses += 1
             result = await func(*args, **kwargs)
-            
+
             # Cache result if not None or if cache_none is True
             if result is not None or cache_none:
                 await _function_cache.set(cache_key, result, ttl)
-            
+
             return result
         
         return wrapper
