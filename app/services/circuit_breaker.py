@@ -54,6 +54,7 @@ class CircuitBreakerConfig:
 @dataclass
 class CircuitBreakerMetrics:
     """Metrics for circuit breaker"""
+    name: str = "default"
     total_calls: int = 0
     successful_calls: int = 0
     failed_calls: int = 0
